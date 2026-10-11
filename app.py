@@ -239,6 +239,83 @@ def extract_document(uploaded):
         st.warning(f"Could not read {uploaded.name}: {e}")
     return ""
 
+def draft_without_ai(prompt, source_text, profile_text, scholarship_text, word_limit=500):
+    """Build an editable, structured essay draft locally without any API calls."""
+    def clean(value):
+        return " ".join(str(value or "").split()).strip()
+
+    prompt_text = clean(scholarship_text)
+    task_text = clean(prompt)
+    source_text = clean(source_text)
+    profile_text = clean(profile_text)
+
+    # Pull the most useful sentences from the student's own notes/samples.
+    raw_notes = []
+    for chunk in [profile_text, source_text, task_text]:
+        for part in chunk.replace("\\n", " ").split(". "):
+            part = clean(part.strip(" -•\\t"))
+            if len(part) >= 18 and part not in raw_notes:
+                raw_notes.append(part.rstrip(".") + ".")
+    notes = raw_notes[:8]
+
+    prompt_lower = prompt_text.lower()
+    task_lower = task_text.lower()
+    focus = task_text or "my goals, experiences, and the contribution I hope to make"
+    mission = "the scholarship's goals and selection criteria"
+    if any(word in prompt_lower for word in ["community", "service", "volunteer", "leadership"]):
+        mission = "the importance of contributing to a community and helping others"
+    elif any(word in prompt_lower for word in ["career", "major", "academic", "education", "future"]):
+        mission = "my educational goals and the future I am working toward"
+
+    opening = (
+        f"I am applying for this scholarship because it would support my next steps in education "
+        f"and help me continue working toward my goals. The opportunity matters to me because "
+        f"{focus.rstrip('.')}."
+    )
+    if notes:
+        opening += f" One part of my background that helps explain this goal is: {notes[0]}"
+
+    paragraphs = [
+        opening,
+        (
+            "My experiences have helped me understand the kind of student and community member I want to be. "
+            + (notes[1] if len(notes) > 1 else "[Add a specific experience, project, responsibility, or challenge that shaped you.]")
+            + " This experience taught me [describe a skill, value, or lesson] and showed me how I can apply that lesson in the future."
+        ),
+        (
+            "I also want to use my education to make a meaningful contribution. "
+            + (notes[2] if len(notes) > 2 else "[Add a relevant activity, achievement, project, or example of helping others.]")
+            + " These experiences connect to " + mission + " because [explain the connection in your own words]."
+        ),
+        (
+            "Receiving this scholarship would help me [explain the specific educational expense or opportunity it would support]. "
+            "It would give me more room to focus on [name your studies, project, or next step] while continuing to build the skills "
+            "and experience needed to reach my goals."
+        ),
+        (
+            "Ultimately, I hope to turn what I learn into action. I would be grateful for the opportunity to continue growing, "
+            "contribute to the people around me, and pursue my goals with purpose. Thank you for considering my application."
+        ),
+    ]
+
+    # Keep all paragraphs, but offer a practical word-limit reminder instead of silently cutting meaning.
+    draft = "\\n\\n".join(paragraphs)
+    word_count = len(draft.split())
+    if word_limit and word_count > word_limit:
+        draft += f"\\n\\n[Revision note: This starter draft is about {word_count} words. Shorten it to the required {word_limit}-word limit.]"
+    elif word_limit:
+        draft += f"\\n\\n[Revision note: This starter draft is about {word_count} words. Add your own specific details and check the final word count.]"
+
+    draft += (
+        "\\n\\n--- PERSONALIZATION CHECKLIST ---\\n"
+        "• Replace every bracketed placeholder with accurate details.\\n"
+        "• Check that each paragraph answers the exact scholarship prompt.\\n"
+        "• Add one concrete example in your own words and remove anything that does not sound like you.\\n"
+        "• Verify every claim and follow the scholarship sponsor's rules about writing assistance."
+    )
+    return draft
+
+
 def draft_with_gpt(prompt, source_text, profile_text, scholarship_text):
     key = secret("OPENAI_API_KEY")
     if not key:
@@ -355,7 +432,7 @@ with tab_search:
 with tab_essay:
     st.markdown('<div class="section-kicker">02 / WRITE IN YOUR OWN VOICE</div>', unsafe_allow_html=True)
     st.markdown("## Essay studio")
-    st.write("Give the AI your prompt and a sample of your writing. It can learn your tone from the sample and use only facts you provide.")
+    st.write("Build an editable essay starter from your prompt, notes, and writing samples. This free mode runs locally in the app and does not require an OpenAI API key.")
     with st.container(border=True):
         uploaded_files = st.file_uploader(
             "Upload multiple writing samples or notes",
@@ -388,8 +465,8 @@ with tab_essay:
         essay_profile = st.text_area("Facts you want the essay to draw from", placeholder="Your goals, projects, responsibilities, activities, and experiences relevant to this application.", height=130)
         scholarship_prompt = st.text_area("Scholarship prompt and criteria", placeholder="Paste the exact question, word limit, and selection criteria.", height=130)
         task = st.text_area("What should the essay emphasize?", placeholder="Connect my engineering interests and community service to this scholarship's mission.", height=80)
-        consent = st.checkbox("I understand that my uploaded writing and details will be sent to the configured AI provider to generate a draft.")
-        if st.button("Create my draft ✦", type="primary"):
+        consent = st.checkbox("I understand this creates a structured starter draft that I must personalize and fact-check.")
+        if st.button("Create free essay starter ✦", type="primary"):
             if not consent:
                 st.error("Please confirm how your information will be processed.")
             elif not scholarship_prompt.strip():
@@ -400,12 +477,10 @@ with tab_essay:
                     f"Graduation year: {graduation_year}", f"Selected themes: {', '.join(adversity)}",
                     f"Other user-provided keywords: {struggles}", essay_profile
                 ])
-                with st.spinner("Building a draft from your details..."):
-                    result, error = draft_with_gpt(task, writing_sample, profile_text, scholarship_prompt)
-                if error:
-                    st.warning(error)
-                else:
-                    st.session_state["essay_draft"] = result
+                with st.spinner("Building your free essay starter..."):
+                    result = draft_without_ai(task, writing_sample, profile_text, scholarship_prompt)
+                st.session_state["essay_draft"] = result
+                st.success("Your starter draft is ready. No OpenAI API call was made.")
     if st.session_state.get("essay_draft"):
         st.markdown("### Your draft")
         st.text_area("Edit before using", value=st.session_state["essay_draft"], height=380, key="editable_draft")
