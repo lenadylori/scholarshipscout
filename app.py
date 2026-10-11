@@ -239,82 +239,186 @@ def extract_document(uploaded):
         st.warning(f"Could not read {uploaded.name}: {e}")
     return ""
 
-def draft_without_ai(prompt, source_text, profile_text, scholarship_text, word_limit=500):
-    """Build an editable, structured essay draft locally without any API calls."""
+def draft_with_gemini(prompt, source_text, profile_text, scholarship_text, details=None):
+    """Generate a scholarship essay using Google's Gemini API."""
+    key = secret("GEMINI_API_KEY")
+    if not key:
+        return None, "Add GEMINI_API_KEY in Streamlit Community Cloud → Settings → Secrets. Create a key at Google AI Studio."
+    details = details or {}
+    word_limit = int(details.get("word_limit") or 500)
+
+    def safe(value, limit=12000):
+        return str(value or "").strip()[:limit]
+
+    instructions = f"""You are an excellent scholarship essay coach. Write a specific, coherent first draft that directly answers the scholarship prompt. Do not write a generic template or checklist instead of an essay. Never invent events, results, awards, identities, hardship, feelings, numbers, or responsibilities. Use only supplied facts. If crucial details are missing, use a concise [ADD A SPECIFIC DETAIL] placeholder. Do not paste filenames, document headings, field labels, or raw metadata into the essay. Use writing samples to understand the applicant's natural voice, but do not deliberately reproduce grammar errors. Avoid clichés, repetition, inflated language, and generic claims. Focus on a clear central idea, concrete evidence, reflection, and connection to the scholarship. Aim for approximately {word_limit} words and do not exceed it by more than 5%. Return the essay followed by a short 'Facts to verify' section."""
+    user_content = f"""SCHOLARSHIP PROMPT AND CRITERIA:
+{safe(scholarship_text, 5000)}
+
+WHAT THE APPLICANT WANTS TO EMPHASIZE:
+{safe(prompt, 3000)}
+
+APPLICANT PROFILE AND GOALS:
+{safe(profile_text, 5000)}
+
+SPECIFIC DETAILS PROVIDED:
+- Goal: {safe(details.get('goal'), 2000)}
+- Service/volunteering: {safe(details.get('service'), 2000)}
+- Specific experience: {safe(details.get('example'), 3000)}
+- Actions taken: {safe(details.get('action'), 2000)}
+- Actual impact: {safe(details.get('impact'), 2000)}
+- Lesson learned: {safe(details.get('lesson'), 2000)}
+- Future plans: {safe(details.get('future'), 2000)}
+- How scholarship helps: {safe(details.get('need'), 2000)}
+- Example of natural phrasing: {safe(details.get('voice'), 1500)}
+
+WRITING SAMPLES/NOTES (background only; never paste headings or metadata):
+{safe(source_text, 14000)}
+
+Write in a thoughtful high-school student's voice, grounded only in the facts above. For service essays, explain what the applicant actually did, why it mattered, what they learned, and how they will continue. Do not claim outcomes the applicant did not provide."""
+    try:
+        from google import genai
+        client = genai.Client(api_key=key)
+        response = client.models.generate_content(
+            model="gemini-3.8-flash",
+            contents=instructions + "\n\n" + user_content,
+        )
+        result = (getattr(response, "text", None) or "").strip()
+        if not result:
+            return None, "Gemini returned an empty response. Try again or use the offline template."
+        return result, None
+    except Exception as e:
+        message = str(e)
+        if "429" in message or "RESOURCE_EXHAUSTED" in message:
+            return None, "Gemini's free-tier quota or rate limit has been reached. Try again later or use the offline template."
+        if "API_KEY_INVALID" in message or "invalid api key" in message.lower() or "permission" in message.lower():
+            return None, "Gemini could not authenticate this key. Check GEMINI_API_KEY in Streamlit Secrets and Google AI Studio."
+        return None, f"Gemini drafting failed: {message[:400]}"
+
+
+def draft_without_ai(prompt, source_text, profile_text, scholarship_text, details=None, word_limit=500):
+    """Create a cleaner, fact-grounded essay draft without an external AI API."""
+    details = details or {}
+
     def clean(value):
-        return " ".join(str(value or "").split()).strip()
+        value = str(value or "").replace("\\n", " ").replace("\n", " ")
+        return re.sub(r"\s+", " ", value).strip(" \t\r\n-•")
+
+    def sentence(value):
+        value = clean(value)
+        if not value:
+            return ""
+        return value if value[-1] in ".!?" else value + "."
+
+    # Pull useful content from samples without including headings, field labels,
+    # or entire document headers in the essay.
+    ignored_starts = (
+        "school:", "class year:", "intended major:", "possible minor",
+        "college interests:", "basic information", "brag sheet", "who i am",
+        "education:", "location:", "field:", "graduation year:",
+        "selected themes:", "other user-provided keywords:",
+        "writing sample:", "--- writing sample:"
+    )
+    candidates = []
+    for line in re.split(r"[\n\r]+", str(source_text or "")):
+        line = clean(line)
+        if not line or len(line) < 28 or line.lower().startswith(ignored_starts):
+            continue
+        if line.endswith(":") or (line.isupper() and len(line) < 80):
+            continue
+        if line not in candidates:
+            candidates.append(line)
+    for line in re.split(r"[\n\r]+", str(profile_text or "")):
+        line = clean(line)
+        if len(line) >= 28 and not line.lower().startswith(ignored_starts) and line not in candidates:
+            candidates.append(line)
 
     prompt_text = clean(scholarship_text)
     task_text = clean(prompt)
-    source_text = clean(source_text)
-    profile_text = clean(profile_text)
+    goal = clean(details.get("goal"))
+    example = clean(details.get("example"))
+    action = clean(details.get("action"))
+    impact = clean(details.get("impact"))
+    lesson = clean(details.get("lesson"))
+    future = clean(details.get("future"))
+    need = clean(details.get("need"))
+    voice = clean(details.get("voice"))
+    service = clean(details.get("service"))
+    word_limit = int(details.get("word_limit") or word_limit)
 
-    # Pull the most useful sentences from the student's own notes/samples.
-    raw_notes = []
-    for chunk in [profile_text, source_text, task_text]:
-        for part in chunk.replace("\\n", " ").split(". "):
-            part = clean(part.strip(" -•\\t"))
-            if len(part) >= 18 and part not in raw_notes:
-                raw_notes.append(part.rstrip(".") + ".")
-    notes = raw_notes[:8]
+    # Prefer user-entered facts. Only use sample-derived text when no better
+    # detail exists, and never paste metadata or raw document labels into prose.
+    if not example and candidates:
+        example = candidates[0]
+    if not lesson:
+        lesson = "I learned that consistent, practical help can make a difference to people facing difficult circumstances"
+    if not goal:
+        goal = "continue my education and use what I learn to contribute to my community"
+    if not future:
+        future = "keep serving my community while developing the skills to make a meaningful contribution"
+    if not need:
+        need = "help cover educational expenses and make it easier to focus on my studies"
 
-    prompt_lower = prompt_text.lower()
-    task_lower = task_text.lower()
-    focus = task_text or "my goals, experiences, and the contribution I hope to make"
-    mission = "the scholarship's goals and selection criteria"
-    if any(word in prompt_lower for word in ["community", "service", "volunteer", "leadership"]):
-        mission = "the importance of contributing to a community and helping others"
-    elif any(word in prompt_lower for word in ["career", "major", "academic", "education", "future"]):
-        mission = "my educational goals and the future I am working toward"
+    paragraphs = []
+    if service or "volunteer" in (task_text + " " + prompt_text).lower() or "hungry" in (task_text + " " + prompt_text).lower():
+        opening = (
+            "Service matters to me because meeting a community's needs often begins with practical, consistent action. "
+            + (sentence(service) + " " if service else "")
+            + "I want to support efforts that help people access essentials, including reliable food, while treating every person with dignity."
+        )
+    else:
+        opening = (
+            "I am applying for this scholarship because it would support my education and the goals I am working toward. "
+            + "My goal is to " + goal.rstrip(".") + "."
+        )
+    paragraphs.append(opening)
 
-    opening = (
-        f"I am applying for this scholarship because it would support my next steps in education "
-        f"and help me continue working toward my goals. The opportunity matters to me because "
-        f"{focus.rstrip('.')}."
+    if example:
+        p2 = "One experience that connects to this commitment is " + sentence(example)
+        if action:
+            p2 += " In that work, " + sentence(action)
+        if impact:
+            p2 += " The result was " + sentence(impact)
+        paragraphs.append(p2)
+    else:
+        paragraphs.append(
+            "A meaningful example from my own experience would help show this commitment. "
+            "[Add one specific volunteering experience: where you served, what you did, and who benefited.]"
+        )
+
+    paragraphs.append(
+        "That experience has taught me " + sentence(lesson).lower().rstrip(".")
+        + ". It has helped me understand that service is not only about wanting to help; it is also about listening, following through, and doing work that responds to real needs."
     )
-    if notes:
-        opening += f" One part of my background that helps explain this goal is: {notes[0]}"
 
-    paragraphs = [
-        opening,
-        (
-            "My experiences have helped me understand the kind of student and community member I want to be. "
-            + (notes[1] if len(notes) > 1 else "[Add a specific experience, project, responsibility, or challenge that shaped you.]")
-            + " This experience taught me [describe a skill, value, or lesson] and showed me how I can apply that lesson in the future."
-        ),
-        (
-            "I also want to use my education to make a meaningful contribution. "
-            + (notes[2] if len(notes) > 2 else "[Add a relevant activity, achievement, project, or example of helping others.]")
-            + " These experiences connect to " + mission + " because [explain the connection in your own words]."
-        ),
-        (
-            "Receiving this scholarship would help me [explain the specific educational expense or opportunity it would support]. "
-            "It would give me more room to focus on [name your studies, project, or next step] while continuing to build the skills "
-            "and experience needed to reach my goals."
-        ),
-        (
-            "Ultimately, I hope to turn what I learn into action. I would be grateful for the opportunity to continue growing, "
-            "contribute to the people around me, and pursue my goals with purpose. Thank you for considering my application."
-        ),
-    ]
+    if voice:
+        paragraphs.append("In my own words, " + sentence(voice))
+    if future:
+        paragraphs.append(
+            "I want to carry this lesson into the future by " + future.rstrip(".")
+            + ". My education will help me build the knowledge and judgment to do that thoughtfully."
+        )
+    else:
+        paragraphs.append("I want to carry this lesson into the future through my education and continued community involvement.")
 
-    # Keep all paragraphs, but offer a practical word-limit reminder instead of silently cutting meaning.
-    draft = "\\n\\n".join(paragraphs)
-    word_count = len(draft.split())
-    if word_limit and word_count > word_limit:
-        draft += f"\\n\\n[Revision note: This starter draft is about {word_count} words. Shorten it to the required {word_limit}-word limit.]"
-    elif word_limit:
-        draft += f"\\n\\n[Revision note: This starter draft is about {word_count} words. Add your own specific details and check the final word count.]"
+    paragraphs.append(
+        "This scholarship would " + need.rstrip(".") + ". "
+        + "With that support, I could keep working toward my goals while making time for the learning and service that matter to me."
+    )
 
+    draft = "\n\n".join(paragraphs)
+    count = len(draft.split())
+    if word_limit and count > word_limit:
+        draft += f"\n\n[Revision note: This draft is about {count} words. Trim it to the scholarship's {word_limit}-word limit.]"
+    else:
+        draft += f"\n\n[Revision note: About {count} words. Add specific, accurate details and check the sponsor's word limit.]"
     draft += (
-        "\\n\\n--- PERSONALIZATION CHECKLIST ---\\n"
-        "• Replace every bracketed placeholder with accurate details.\\n"
-        "• Check that each paragraph answers the exact scholarship prompt.\\n"
-        "• Add one concrete example in your own words and remove anything that does not sound like you.\\n"
-        "• Verify every claim and follow the scholarship sponsor's rules about writing assistance."
+        "\n\n--- BEFORE SUBMITTING ---\n"
+        "• Replace any generic wording with details only you can provide.\n"
+        "• Verify every statement and remove anything that is not accurate.\n"
+        "• Read aloud and revise phrases that do not sound like you.\n"
+        "• Check the scholarship sponsor's rules about writing assistance."
     )
     return draft
-
 
 def draft_with_gpt(prompt, source_text, profile_text, scholarship_text):
     key = secret("OPENAI_API_KEY")
@@ -432,7 +536,7 @@ with tab_search:
 with tab_essay:
     st.markdown('<div class="section-kicker">02 / WRITE IN YOUR OWN VOICE</div>', unsafe_allow_html=True)
     st.markdown("## Essay studio")
-    st.write("Build an editable essay starter from your prompt, notes, and writing samples. This free mode runs locally in the app and does not require an OpenAI API key.")
+    st.write("Generate a personalized scholarship essay with Google Gemini, or use the offline template without an API key. Gemini sends the text you provide to Google for processing.")
     with st.container(border=True):
         uploaded_files = st.file_uploader(
             "Upload multiple writing samples or notes",
@@ -462,25 +566,58 @@ with tab_essay:
                     st.warning("No readable text was extracted from these files.")
         else:
             writing_sample = ""
-        essay_profile = st.text_area("Facts you want the essay to draw from", placeholder="Your goals, projects, responsibilities, activities, and experiences relevant to this application.", height=130)
-        scholarship_prompt = st.text_area("Scholarship prompt and criteria", placeholder="Paste the exact question, word limit, and selection criteria.", height=130)
-        task = st.text_area("What should the essay emphasize?", placeholder="Connect my engineering interests and community service to this scholarship's mission.", height=80)
-        consent = st.checkbox("I understand this creates a structured starter draft that I must personalize and fact-check.")
-        if st.button("Create free essay starter ✦", type="primary"):
-            if not consent:
-                st.error("Please confirm how your information will be processed.")
+        essay_profile = st.text_area("Background and goals (optional)", placeholder="Your intended major, career goals, responsibilities, projects, or other relevant context.", height=100)
+        scholarship_prompt = st.text_area("Scholarship prompt and criteria", placeholder="Paste the exact question and selection criteria.", height=130)
+        task = st.text_area("Main message", placeholder="Example: Show my commitment to volunteering and helping fight hunger.", height=70)
+        with st.expander("Add details to make the draft more specific"):
+            service_detail = st.text_area("What service or volunteering have you done?", placeholder="Organization, event, food drive, meal distribution, or other service. Include only true details.", height=75)
+            example_detail = st.text_area("One specific experience", placeholder="What did you personally do? Describe one real moment or responsibility.", height=85)
+            action_detail = st.text_area("What actions did you take?", placeholder="Your role, tasks, hours, people you worked with, or problem you helped solve.", height=70)
+            impact_detail = st.text_area("What changed because of your work?", placeholder="Use real outcomes if you know them. Do not guess numbers.", height=65)
+            lesson_detail = st.text_area("What did you learn?", placeholder="A lesson or value you took from the experience.", height=65)
+            future_detail = st.text_area("How will you continue this work?", placeholder="Connect your future plans to service, education, or your career.", height=65)
+            need_detail = st.text_area("How would the scholarship help?", placeholder="Tuition, books, transportation, supplies, or another real education expense.", height=65)
+            voice_detail = st.text_area("A sentence in your own voice (optional)", placeholder="Write a sentence the way you would naturally say it.", height=55)
+            word_limit_detail = st.number_input("Target word limit", min_value=100, max_value=2000, value=500, step=50)
+        gemini_consent = st.checkbox("I agree to send the prompt, writing samples, and details I entered to Google Gemini. I will avoid sharing sensitive information I do not want processed.")
+        st.caption("Uploaded writing and essay details are sent to Google only if you choose Gemini. The offline template does not call an AI service.")
+        ai_col, template_col = st.columns(2)
+        with ai_col:
+            create_gemini = st.button("Generate with Gemini ✦", type="primary", use_container_width=True)
+        with template_col:
+            create_template = st.button("Use free template", use_container_width=True)
+
+        profile_text = "\n".join([
+            f"Education: {education}", f"Location: {location}", f"Field: {field}",
+            f"Graduation year: {graduation_year}", f"Selected themes: {', '.join(adversity)}",
+            f"Other user-provided keywords: {struggles}", essay_profile
+        ])
+        details = {
+            "goal": essay_profile, "service": service_detail, "example": example_detail,
+            "action": action_detail, "impact": impact_detail, "lesson": lesson_detail,
+            "future": future_detail, "need": need_detail, "voice": voice_detail,
+            "word_limit": word_limit_detail,
+        }
+        if create_gemini:
+            if not gemini_consent:
+                st.error("Please confirm before sending your writing and details to Google Gemini.")
             elif not scholarship_prompt.strip():
                 st.error("Add the scholarship prompt first.")
             else:
-                profile_text = "\n".join([
-                    f"Education: {education}", f"Location: {location}", f"Field: {field}",
-                    f"Graduation year: {graduation_year}", f"Selected themes: {', '.join(adversity)}",
-                    f"Other user-provided keywords: {struggles}", essay_profile
-                ])
-                with st.spinner("Building your free essay starter..."):
-                    result = draft_without_ai(task, writing_sample, profile_text, scholarship_prompt)
-                st.session_state["essay_draft"] = result
-                st.success("Your starter draft is ready. No OpenAI API call was made.")
+                with st.spinner("Gemini is drafting your essay..."):
+                    result, error = draft_with_gemini(task, writing_sample, profile_text, scholarship_prompt, details)
+                if error:
+                    st.error(error)
+                else:
+                    st.session_state["essay_draft"] = result
+                    st.success("Your Gemini essay draft is ready. Review and personalize it before submitting.")
+        if create_template:
+            if not scholarship_prompt.strip():
+                st.error("Add the scholarship prompt first.")
+            else:
+                with st.spinner("Building a structured starter..."):
+                    st.session_state["essay_draft"] = draft_without_ai(task, writing_sample, profile_text, scholarship_prompt, details)
+                st.success("Your offline template draft is ready. No AI service was called.")
     if st.session_state.get("essay_draft"):
         st.markdown("### Your draft")
         st.text_area("Edit before using", value=st.session_state["essay_draft"], height=380, key="editable_draft")
