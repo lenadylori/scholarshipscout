@@ -193,7 +193,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown('<div class="section-kicker">YOUR WORKSPACE</div>', unsafe_allow_html=True)
-tab_search, tab_essay, tab_tracker, tab_resources = st.tabs(["✦ Discover", "✎ Essay studio", "▤ My checklist", "↗ Resources"])
+tab_search, tab_essay, tab_tracker, tab_resources, tab_feedback = st.tabs(["✦ Discover", "✎ Essay studio", "▤ My checklist", "↗ Resources", "⚑ Report a bug"])
 
 def search_web(query, limit=10):
     key = secret("TAVILY_API_KEY")
@@ -658,3 +658,26 @@ with tab_resources:
 
 st.markdown("---")
 st.markdown('<div class="small-note">SCHOLARSHIP SCOUT AI · Built to help you find opportunities and tell your story with care. No essay can guarantee an award. Review all generated content before submitting.</div>', unsafe_allow_html=True)
+
+with tab_feedback:
+    st.markdown('<div class="section-kicker">05 / HELP IMPROVE SCHOLARSHIP SCOUT</div>', unsafe_allow_html=True)
+    st.markdown("## Found a bug?")
+    st.write(
+        "Help make Scholarship Scout better for everyone. If something looks wrong, "
+        "a button does not work, a scholarship result seems inaccurate, or the essay "
+        "studio behaves unexpectedly, please report it using the form below."
+    )
+    with st.container(border=True):
+        st.markdown("### Submit a bug report")
+        st.write("Please describe what you were doing, what you expected to happen, and what happened instead.")
+        st.link_button(
+            "Report a bug ↗",
+            "https://forms.gle/8dAjyHSHFBrBv1tZ9",
+            type="primary",
+            use_container_width=True,
+        )
+        st.caption(
+            "Please do not include passwords, API keys, or sensitive personal information "
+            "in your report. If possible, include the page or feature where the issue occurred."
+        )
+
