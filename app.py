@@ -12,53 +12,144 @@ def secret(name):
     except Exception:
         return os.getenv(name, "")
 
+
+DESCRIPTION_CHAR_LIMIT = 320
+
+def limited_description(value, limit=DESCRIPTION_CHAR_LIMIT):
+    """Keep scholarship previews compact so they stay inside their cards."""
+    text = " ".join(str(value or "No preview available.").split())
+    if len(text) <= limit:
+        return text
+    return text[:limit].rsplit(" ", 1)[0].rstrip(" ,;:-") + "…"
+
 # Editorial, layered teal-and-ivory visual system inspired by the supplied references.
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap');
-:root { --deep:#064e49; --deep2:#003d39; --teal:#08766c; --mint:#d8e8df; --paper:#eef1e9; --ink:#063f3b; --muted:#54736d; --line:rgba(5,70,64,.28); }
+
+/* Streamlit's selected app theme is exposed through CSS variables. Use them
+   for surfaces and text, while keeping the Scholarship Scout teal identity. */
+:root {
+  --sc-teal:#075b53;
+  --sc-teal-hover:#0b7167;
+  --sc-light-paper:#eef1e9;
+  --sc-light-card:#f8f8f1;
+  --sc-light-sidebar:#dce7df;
+  --sc-light-ink:#123f3a;
+  --sc-light-muted:#506c66;
+  --sc-dark-paper:#171c1c;
+  --sc-dark-card:#222a29;
+  --sc-dark-sidebar:#1d2524;
+  --sc-dark-ink:#e7eee9;
+  --sc-dark-muted:#b4c4bd;
+  --sc-line-light:rgba(5,70,64,.24);
+  --sc-line-dark:rgba(190,220,207,.22);
+}
 html, body, [class*="css"] { font-family:'DM Sans',sans-serif; }
-.stApp { background: var(--paper); color:var(--ink); }
+.stApp { background:var(--background-color); color:var(--text-color); }
+[data-testid="stAppViewContainer"], [data-testid="stMain"], [data-testid="stMainBlockContainer"] {
+  background:var(--background-color); color:var(--text-color);
+}
 [data-testid="stHeader"] { background:transparent; }
-.block-container { max-width: 1240px; padding-top: 1.5rem; padding-bottom: 4rem; }
-h1,h2,h3,h4 { font-family:'Manrope',sans-serif !important; color:var(--ink) !important; letter-spacing:-.035em; }
-h1 { font-size:clamp(2.6rem,5vw,5rem) !important; line-height:1.0 !important; font-weight:800 !important; }
-h2 { font-weight:800 !important; }
-p, label, .stMarkdown { color:var(--ink); }
-div[data-testid="stSidebar"] { background:#dce7df; border-right:1px solid var(--line); }
-div[data-testid="stSidebar"] h2, div[data-testid="stSidebar"] label { color:var(--ink); }
-div[data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap:.7rem; }
-div[data-testid="stTextInput"] input, div[data-testid="stTextArea"] textarea, div[data-testid="stSelectbox"] div[data-baseweb="select"], div[data-testid="stNumberInput"] input {
-  border-radius:14px !important; background:#f8f8f1 !important; border-color:var(--line) !important; color:var(--ink) !important;
+.block-container { max-width:1240px; padding-top:1.5rem; padding-bottom:4rem; }
+h1,h2,h3,h4 { font-family:'Manrope',sans-serif !important; color:var(--text-color) !important; letter-spacing:-.035em; }
+p, label, .stMarkdown, [data-testid="stMarkdownContainer"], [data-testid="stWidgetLabel"] { color:var(--text-color); }
+[data-testid="stCaptionContainer"], .small-note { color:var(--secondary-text-color) !important; }
+
+div[data-testid="stSidebar"] {
+  background:var(--secondary-background-color);
+  border-right:1px solid var(--sc-line-light);
 }
+div[data-testid="stSidebar"] h2, div[data-testid="stSidebar"] label,
+div[data-testid="stSidebar"] p, div[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] {
+  color:var(--text-color);
+}
+
+div[data-testid="stTextInput"] input, div[data-testid="stTextArea"] textarea,
+div[data-testid="stSelectbox"] div[data-baseweb="select"], div[data-testid="stNumberInput"] input {
+  border-radius:14px !important;
+  background:var(--secondary-background-color) !important;
+  border-color:var(--sc-line-light) !important;
+  color:var(--text-color) !important;
+}
+div[data-testid="stTextInput"] input::placeholder, div[data-testid="stTextArea"] textarea::placeholder {
+  color:var(--secondary-text-color) !important; opacity:1 !important;
+}
+[data-baseweb="select"] *, [data-baseweb="popover"] * { color:var(--text-color); }
+
 .stButton > button, .stDownloadButton > button, .stLinkButton > a {
-  border-radius:999px !important; border:1px solid var(--deep) !important; background:var(--deep) !important; color:#f1f3eb !important;
-  font-weight:700 !important; padding:.65rem 1.2rem !important; transition:transform .15s ease, background .15s ease;
+  border-radius:999px !important; border:1px solid var(--sc-teal) !important;
+  background:var(--sc-teal) !important; color:#f4f4eb !important;
+  font-weight:700 !important; padding:.65rem 1.2rem !important;
+  transition:transform .15s ease, background .15s ease;
 }
-.stButton > button:hover, .stDownloadButton > button:hover, .stLinkButton > a:hover { background:#0a6b61 !important; transform:translateY(-1px); }
-button[kind="secondary"] { background:transparent !important; color:var(--deep) !important; }
-[data-testid="stTabs"] [data-baseweb="tab-list"] { gap:.5rem; background:#dbe6dd; padding:.45rem; border-radius:999px; }
-[data-testid="stTabs"] button[role="tab"] { border-radius:999px; color:var(--ink); padding:.65rem 1.1rem; }
-[data-testid="stTabs"] button[aria-selected="true"] { background:var(--deep) !important; color:#f4f4eb !important; }
-[data-testid="stVerticalBlockBorderWrapper"] { background:rgba(250,250,244,.74); border:1px solid var(--line); border-radius:24px; box-shadow:0 10px 28px rgba(0,54,49,.06); }
+.stButton > button:hover, .stDownloadButton > button:hover, .stLinkButton > a:hover {
+  background:var(--sc-teal-hover) !important; transform:translateY(-1px);
+}
+button[kind="secondary"] { background:transparent !important; color:var(--text-color) !important; }
+
+[data-testid="stTabs"] [data-baseweb="tab-list"] {
+  gap:.5rem; background:var(--secondary-background-color); padding:.45rem; border-radius:999px;
+}
+[data-testid="stTabs"] button[role="tab"] {
+  border-radius:999px; color:var(--text-color) !important; padding:.65rem 1.1rem;
+}
+[data-testid="stTabs"] button[aria-selected="true"] {
+  background:var(--sc-teal) !important; color:#f4f4eb !important;
+}
+[data-testid="stVerticalBlockBorderWrapper"] {
+  background:var(--secondary-background-color); color:var(--text-color);
+  border:1px solid var(--sc-line-light); border-radius:24px;
+  box-shadow:0 10px 28px rgba(0,54,49,.06);
+}
+[data-testid="stVerticalBlockBorderWrapper"] p,
+[data-testid="stVerticalBlockBorderWrapper"] h1,
+[data-testid="stVerticalBlockBorderWrapper"] h2,
+[data-testid="stVerticalBlockBorderWrapper"] h3,
+[data-testid="stVerticalBlockBorderWrapper"] label { color:var(--text-color); }
 [data-testid="stAlert"] { border-radius:18px; }
-div[data-testid="stMetric"] { background:#dbe7df; padding:1rem; border-radius:18px; border:1px solid var(--line); }
-.hero { position:relative; overflow:hidden; padding:clamp(1.5rem,4vw,3.5rem); border-radius:34px; color:#f2f2e8; background:radial-gradient(circle at 85% 12%,rgba(121,190,166,.25),transparent 28%),linear-gradient(135deg,#003d39 0%,#075e56 60%,#0b7167 100%); box-shadow:0 20px 45px rgba(0,53,49,.18); margin-bottom:1.3rem; }
-.hero:after { content:"✦"; position:absolute; right:5%; bottom:-65px; font-size:240px; line-height:1; color:rgba(224,239,226,.08); transform:rotate(-12deg); pointer-events:none; }
+div[data-testid="stMetric"] {
+  background:var(--secondary-background-color); color:var(--text-color);
+  padding:1rem; border-radius:18px; border:1px solid var(--sc-line-light);
+}
+.hero {
+  position:relative; overflow:hidden; padding:clamp(1.5rem,4vw,3.5rem);
+  border-radius:34px; color:#f2f2e8;
+  background:radial-gradient(circle at 85% 12%,rgba(121,190,166,.25),transparent 28%),
+             linear-gradient(135deg,#003d39 0%,#075e56 60%,#0b7167 100%);
+  box-shadow:0 20px 45px rgba(0,53,49,.18); margin-bottom:1.3rem;
+}
+.hero:after {
+  content:"✦"; position:absolute; right:5%; bottom:-65px; font-size:240px;
+  line-height:1; color:rgba(224,239,226,.08); transform:rotate(-12deg); pointer-events:none;
+}
 .eyebrow { font-size:.76rem; font-weight:800; letter-spacing:.22em; text-transform:uppercase; color:#a9d6c5; margin-bottom:1rem; }
 .hero h1 { color:#f2f2e8 !important; max-width:850px; }
-.hero p { color:#d0e3d8; max-width:650px; font-size:1.05rem; line-height:1.65; }
+.hero p { color:#d0e3d8 !important; max-width:650px; font-size:1.05rem; line-height:1.65; }
 .hero-pill { display:inline-block; border:1px solid rgba(229,241,230,.5); border-radius:999px; padding:.4rem .85rem; margin:.25rem .25rem 0 0; color:#edf2e8; font-size:.8rem; }
-.section-kicker { color:#0a776c; font-size:.75rem; font-weight:800; letter-spacing:.18em; text-transform:uppercase; }
+.section-kicker { color:var(--sc-teal-hover); font-size:.75rem; font-weight:800; letter-spacing:.18em; text-transform:uppercase; }
 .panel-title { font-size:1.35rem; font-weight:800; letter-spacing:-.04em; }
-.result-url { font-size:.82rem; color:#0b766b; overflow-wrap:anywhere; }
-.small-note { color:#54736d; font-size:.85rem; }
-hr { border-color:var(--line) !important; }
-footer {visibility:hidden;}
-@media (max-width: 700px) {
- .block-container { padding-left:1rem; padding-right:1rem; }
- .hero { border-radius:24px; }
- h1 { font-size:2.7rem !important; }
+.result-url { font-size:.82rem; color:var(--sc-teal-hover); overflow-wrap:anywhere; word-break:break-word; max-width:100%; }
+[data-testid="stVerticalBlockBorderWrapper"] { min-width:0; }
+[data-testid="stVerticalBlockBorderWrapper"] [data-testid="stMarkdownContainer"],
+[data-testid="stVerticalBlockBorderWrapper"] [data-testid="stMarkdownContainer"] p {
+  max-width:100%; overflow-wrap:anywhere; word-break:break-word;
+}
+.small-note { font-size:.85rem; }
+hr { border-color:var(--sc-line-light); }
+footer { visibility:hidden; }
+
+/* Dark theme overrides preserve readable contrast for surfaces and decorative labels. */
+@media (prefers-color-scheme: dark) {
+  div[data-testid="stSidebar"] { border-right-color:var(--sc-line-dark); }
+  [data-testid="stVerticalBlockBorderWrapper"], div[data-testid="stMetric"] { border-color:var(--sc-line-dark); }
+  .section-kicker, .result-url { color:#8fd5c1 !important; }
+  hr { border-color:var(--sc-line-dark) !important; }
+}
+@media (max-width:700px) {
+  .block-container { padding-left:1rem; padding-right:1rem; }
+  .hero { border-radius:24px; }
+  h1 { font-size:2.7rem !important; }
 }
 </style>
 """, unsafe_allow_html=True)
@@ -181,6 +272,8 @@ Write a strong, authentic draft grounded only in supplied facts. After the draft
         return None, f"Drafting failed: {e}"
 
 with tab_search:
+    if "saved_scholarships" not in st.session_state:
+        st.session_state["saved_scholarships"] = []
     left, right = st.columns([1.45, 1], gap="large")
     with left:
         st.markdown('<div class="section-kicker">01 / MATCH WITH PURPOSE</div>', unsafe_allow_html=True)
@@ -213,13 +306,51 @@ with tab_search:
             a, b = st.columns([5, 1])
             with a:
                 st.markdown(f"### {i:02d} · {item.get('title', 'Scholarship result')}")
-                st.write(item.get("content", "No preview available."))
+                st.write(limited_description(item.get("content", "No preview available.")))
                 st.markdown(f'<div class="result-url">{item.get("url", "")}</div>', unsafe_allow_html=True)
             with b:
                 if item.get("url"):
-                    st.link_button("Open ↗", item["url"])
+                    st.link_button("Open ↗", item["url"], key=f"open_result_{i}")
+                saved_urls = [saved.get("url") for saved in st.session_state["saved_scholarships"]]
+                if item.get("url") in saved_urls:
+                    st.button("✓ Saved", key=f"saved_result_{i}", disabled=True)
+                else:
+                    if st.button("＋ Save", key=f"save_result_{i}"):
+                        st.session_state["saved_scholarships"].append({
+                            "title": item.get("title", "Scholarship result"),
+                            "url": item.get("url", ""),
+                            "content": item.get("content", ""),
+                        })
+                        st.rerun()
     if results:
         st.info("These are search leads, not verified awards. Confirm eligibility, award amount, deadlines, and AI-use rules on the sponsor's official website.")
+
+    st.markdown("---")
+    st.markdown('<div class="section-kicker">YOUR SHORTLIST</div>', unsafe_allow_html=True)
+    st.markdown("## Saved scholarships")
+    saved_scholarships = st.session_state.get("saved_scholarships", [])
+    if not saved_scholarships:
+        st.caption("Your saved scholarships will appear here. Save results to build your shortlist.")
+    else:
+        st.caption(f"{len(saved_scholarships)} scholarship(s) saved in this session.")
+        for idx, saved in enumerate(saved_scholarships):
+            with st.container(border=True):
+                c1, c2, c3 = st.columns([5, 1, 1])
+                with c1:
+                    st.markdown(f"### {saved['title']}")
+                    st.write(limited_description(saved.get("content", "")))
+                    st.markdown(f'<div class="result-url">{saved.get("url", "")}</div>', unsafe_allow_html=True)
+                with c2:
+                    if saved.get("url"):
+                        st.link_button("Open ↗", saved["url"], key=f"open_saved_{idx}")
+                with c3:
+                    if st.button("Remove", key=f"remove_saved_{idx}"):
+                        st.session_state["saved_scholarships"].pop(idx)
+                        st.rerun()
+        export_text = "\\n\\n".join(
+            f"{s['title']}\\n{s.get('url', '')}\\n{s.get('content', '')}" for s in saved_scholarships
+        )
+        st.download_button("Export saved scholarships ↓", export_text, file_name="saved-scholarships.txt", mime="text/plain")
 
 with tab_essay:
     st.markdown('<div class="section-kicker">02 / WRITE IN YOUR OWN VOICE</div>', unsafe_allow_html=True)
