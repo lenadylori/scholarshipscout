@@ -357,12 +357,34 @@ with tab_essay:
     st.markdown("## Essay studio")
     st.write("Give the AI your prompt and a sample of your writing. It can learn your tone from the sample and use only facts you provide.")
     with st.container(border=True):
-        uploaded = st.file_uploader("Upload your writing or notes", type=["txt", "md", "pdf", "docx"], key="writing_sample")
-        writing_sample = extract_document(uploaded)
-        if uploaded:
-            st.success(f"Loaded text from {uploaded.name} ({len(writing_sample)} characters).")
-            with st.expander("Preview extracted text"):
-                st.text(writing_sample[:4000] or "No readable text found.")
+        uploaded_files = st.file_uploader(
+            "Upload multiple writing samples or notes",
+            type=["txt", "md", "pdf", "docx"],
+            accept_multiple_files=True,
+            key="writing_samples",
+            help="Select several files at once. Their extracted text will be combined as reference material for your essay draft."
+        )
+        writing_sections = []
+        if uploaded_files:
+            for uploaded_file in uploaded_files:
+                extracted = extract_document(uploaded_file)
+                if extracted.strip():
+                    writing_sections.append(
+                        f"--- WRITING SAMPLE: {uploaded_file.name} ---\\n{extracted.strip()}"
+                    )
+            writing_sample = "\\n\\n".join(writing_sections)
+            st.success(
+                f"Loaded {len(uploaded_files)} file(s), with {len(writing_sample):,} characters of readable text."
+            )
+            with st.expander("Preview extracted writing samples"):
+                if writing_sample:
+                    st.text(writing_sample[:8000])
+                    if len(writing_sample) > 8000:
+                        st.caption("Preview shortened. The essay studio can use the combined extracted text.")
+                else:
+                    st.warning("No readable text was extracted from these files.")
+        else:
+            writing_sample = ""
         essay_profile = st.text_area("Facts you want the essay to draw from", placeholder="Your goals, projects, responsibilities, activities, and experiences relevant to this application.", height=130)
         scholarship_prompt = st.text_area("Scholarship prompt and criteria", placeholder="Paste the exact question, word limit, and selection criteria.", height=130)
         task = st.text_area("What should the essay emphasize?", placeholder="Connect my engineering interests and community service to this scholarship's mission.", height=80)
